@@ -60,9 +60,20 @@ export default function Assistant({ lang }) {
       });
       // 404 means the api folder is not running (use "npx vercel dev", not "npm run dev")
       if (res.status === 404) throw new Error("API not found: run the site with npx vercel dev");
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      setMessages([...next, { role: "assistant", text: data.answer }]);
+      if (!res.ok) throw new Error((await res.json()).error);
+
+      // The answer arrives in pieces: show each piece as soon as it comes
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let answer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        answer += decoder.decode(value, { stream: true });
+        setLoading(false); // first words arrived, hide "thinking…"
+        setMessages([...next, { role: "assistant", text: answer }]);
+      }
+      if (!answer) throw new Error("Empty answer");
     } catch (error) {
       console.error("Assistant:", error.message);
       // While building on your computer, show the real problem under the message

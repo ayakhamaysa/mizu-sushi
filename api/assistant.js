@@ -7,7 +7,8 @@
 import { restaurant, categories, tags } from "../src/data/menu.js";
 
 const MODEL = "gemini-3.5-flash-lite"; // fast and free on Google AI Studio
-const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
+// streamGenerateContent + alt=sse: Gemini sends the answer in small pieces while it writes it
+const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:streamGenerateContent?alt=sse`;
 
 // The menu as plain text, from the same file the page uses
 const menuText = categories
@@ -32,11 +33,13 @@ const instructions = (lang) => `
 القواعد:
 - ${lang === "en" ? "Reply in clear, friendly English. Use the English dish names." : "احكي باللهجة الفلسطينية واستعمل الأسماء العربية للأصناف."}
 - خليك لطيف ومختصر (4 أسطر أو أقل). إذا الزبون كتب بلغة تانية، جاوبه بلغته.
+- رحّب بس بأول رد بالمحادثة. بالردود اللي بعدها ادخل بالجواب مباشرة.
+- لا تزيد جمل ختامية أو مجاملات، ولا تحكي عن مكان المطعم إلا إذا الزبون سأل.
 - اقترح بس أصناف من المنيو تحت، بالاسم والسعر بالضبط. لا تخترع أصناف ولا أسعار ولا عروض.
 - إذا سأل عن مصطلح (نيغيري، ساشيمي، رول، أنقليس، يوزو...) اشرحه بجملة بسيطة.
 - انتبه لعلامة "سمك نيء": إذا الزبون ما بحب النيء، أو أول مرة، أو حامل، اقترح بس أصناف "مطبوخ" أو "نباتي".
 - الأسعار بالدرهم الإماراتي. إذا حدد ميزانية أو عدد أشخاص، اجمع الأسعار صح وخليك تحت الميزانية، واكتب المجموع.
-- عن الحساسية: احكي المكونات المكتوبة بس، وانصحه يتأكد من الموظفين.
+- عن الحساسية: احكي بوضوح أي أصناف مكتوب فيها المكوّن حسب المنيو، واقترح أصناف ما مكتوب فيها. قول إنه المكونات المكتوبة مش كاملة (مثلاً الصوصات والرز ممكن يكون فيهم مكونات تانية)، وانصحه يتأكد من الموظفين. لا تضمن إنه الصنف آمن.
 - إذا سأل عن إشي ما إله علاقة بالمطعم، رجّعه بلطف للمنيو.
 - معلومات المطعم: ${restaurant.ar.address}. ${restaurant.ar.hours}. للحجز: ${restaurant.phone}.
 
@@ -76,21 +79,42 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: instructions(lang) }] },
         contents,
-        generationConfig: { temperature: 0.6, maxOutputTokens: 350 },
+        generationConfig: { temperature: 0.4, maxOutputTokens: 300 },
       }),
     });
 
-    const data = await response.json();
     if (!response.ok) {
       // Send Gemini's own error back, so the problem is easy to find
+      const data = await response.json().catch(() => ({}));
       console.error("Gemini error:", data.error?.message);
       return res.status(502).json({ error: `Gemini: ${data.error?.message || response.status}` });
     }
 
-    const answer = data.candidates?.[0]?.content?.parts?.map((p) => p.text).join("") || "";
-    return res.status(200).json({ answer });
+    // Pass every piece of text to the page as soon as it arrives
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      // Gemini sends lines like: data: {...json...}
+      const lines = buffer.split("\n");
+      buffer = lines.pop(); // the last line may be incomplete, keep it for the next round
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const chunk = JSON.parse(line.slice(6));
+        const text = chunk.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
+        if (text) res.write(text);
+      }
+    }
+    return res.end();
   } catch (error) {
     console.error(error);
+    if (res.headersSent) return res.end();
     return res.status(500).json({ error: "Server error" });
   }
 }
