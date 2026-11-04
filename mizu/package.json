@@ -1,0 +1,26 @@
+{
+  "name": "mizu-sushi",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "oxlint",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@fontsource/cairo": "^5.3.0",
+    "@fontsource/oswald": "^5.3.0",
+    "@tailwindcss/vite": "^4.3.4",
+    "framer-motion": "^14.9.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tailwindcss": "^4.3.4"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.2.1",
+    "oxlint": "^1.91.0",
+    "vite": "^8.3.5"
+  }
+}
