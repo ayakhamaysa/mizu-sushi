@@ -24,3 +24,7 @@ dist-ssr
 *.sw?
 
 .vercel
+
+# Never upload these
+.env
+.env.*
